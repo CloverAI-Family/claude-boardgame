@@ -66,8 +66,6 @@ doc_id: state
 if_version: <version from step 1>
 data: {
   board: <newBoard>,
-  gameOver: false,
-  winner: 0,
   turn: <playerColor>,      // hand turn back to the human
   seq: <Date.now()>,
   last_r: <r>,
@@ -91,11 +89,9 @@ The board updates automatically — the human sees your move without doing anyth
 | `player_color` | Human's color: `1` = black, `2` = white |
 | `seq` | Monotone timestamp — must be larger than the previous value |
 | `last_r` / `last_c` | Last move position (for highlight display) |
-| `gameOver` | Whether the game has ended |
-| `winner` | `0` = ongoing, `1` = black wins, `2` = white wins |
-
 ## Notes
 
 - Only one AI should use a given Artifact at a time
 - If multiple AIs need to play separately, each needs their own Artifact copy
-- After a `gameOver`, the human clicks "新局" (New Game) to restart
+- The board detects five-in-a-row itself — do not write `gameOver` or `winner`; the UI calculates these from the board state
+- After the game ends, the human clicks "新局" (New Game) to restart
