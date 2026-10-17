@@ -133,7 +133,7 @@ function setupListener() {
     const d = snap.data();
     if (!d || !d.board) return;
     const dbSeq = Number(d.seq || 0);
-    if (waiting && !gameOver && playerColor && Number(d.turn) === playerColor && dbSeq > localSeq) {
+    if (waiting && !gameOver && playerColor && Number(d.turn) === playerColor && dbSeq >= localSeq) {
       localSeq = dbSeq;
       const rows = String(d.board).split('|');
       if (rows.length !== N) return;
