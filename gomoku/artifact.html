@@ -1,4 +1,4 @@
-<title>五子棋 · 小語葉</title>
+<title>五子棋</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap">
 <style>
@@ -139,15 +139,15 @@ function setupListener() {
       if (rows.length !== N) return;
       board = rows.map(r => String(r).split('').map(v => v==='1'?1:v==='2'?2:0));
       lastMoveDb = Number(d.last_r) >= 0 ? {r: Number(d.last_r), c: Number(d.last_c)} : null;
-      gameOver = Boolean(d.gameOver);
-      myTurn = true;
+      gameOver = checkWin(board, 1) || checkWin(board, 2);
+      myTurn = !gameOver;
       waiting = false;
       cv.classList.remove('waiting');
       draw();
       const myN = playerColor === 1 ? '黑子' : '白子';
       const aiN = playerColor === 1 ? '白子' : '黑子';
       if (gameOver) {
-        statusEl.textContent = `${aiN}贏了（五連）再來一局？`;
+        statusEl.textContent = checkWin(board, aiColor()) ? `${aiN}贏了（五連）再來一局？` : `${myN}贏了！（五連）`;
       } else {
         statusEl.textContent = `輪到${myN}（你）…`;
       }
@@ -314,7 +314,7 @@ async function boot(data) {
             board = rows.map(r => String(r).split('').map(v => v==='1'?1:v==='2'?2:0));
             history = [];
             lastMoveDb = Number(d.last_r) >= 0 ? {r: Number(d.last_r), c: Number(d.last_c)} : null;
-            gameOver = Boolean(d.gameOver);
+            gameOver = checkWin(board, 1) || checkWin(board, 2);
             myTurn = !gameOver && Number(d.turn) === playerColor;
             waiting = !gameOver && Number(d.turn) === aiColor();
             localSeq = Number(d.seq || 0);
