@@ -1,0 +1,345 @@
+<title>五子棋</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap">
+<style>
+:root {
+  --bg: #f0ead8;
+  --fg: #1e1609;
+  --board: #c8963c;
+  --board-line: #7a560e;
+  --accent: #5c3312;
+  --muted: #957848;
+  --panel: #e0d8c4;
+  --status-bg: #ede3cc;
+  --stone-b0: #444;
+  --stone-b1: #0d0a04;
+  --stone-w0: #fff;
+  --stone-w1: #e8e2d0;
+  --stone-wb: #b0a88c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #18130a; --fg: #e8dfc8; --board: #7a5018; --board-line: #50340a;
+    --accent: #c8883c; --muted: #907848; --panel: #221a0c; --status-bg: #1c1508;
+    --stone-b0: #555; --stone-b1: #050300; --stone-w0: #f8f4e8; --stone-w1: #d8d0bc; --stone-wb: #a09880;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #18130a; --fg: #e8dfc8; --board: #7a5018; --board-line: #50340a;
+  --accent: #c8883c; --muted: #907848; --panel: #221a0c; --status-bg: #1c1508;
+  --stone-b0: #555; --stone-b1: #050300; --stone-w0: #f8f4e8; --stone-w1: #d8d0bc; --stone-wb: #a09880;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: 'Noto Serif TC', 'Noto Serif', Georgia, serif;
+  min-height: 100%; display: flex; flex-direction: column; align-items: center;
+  gap: 14px; padding-block: 20px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1 { font-size: 1.35rem; font-weight: 700; color: var(--accent); letter-spacing: 0.08em; }
+.legend { display: flex; gap: 20px; font-size: 0.78rem; color: var(--muted); align-items: center; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.stone-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.stone-dot.b { background: var(--stone-b1); }
+.stone-dot.w { background: var(--stone-w1); border: 1.5px solid var(--stone-wb); }
+#status {
+  background: var(--status-bg); border: 1px solid var(--board-line); border-radius: 8px;
+  padding: 9px 22px; font-size: 0.9rem; color: var(--fg); text-align: center;
+  min-width: min(280px, 90vw); min-height: 40px; display: flex; align-items: center; justify-content: center;
+}
+canvas { display: block; cursor: crosshair; border-radius: 3px; box-shadow: 0 6px 24px rgba(0,0,0,0.28); touch-action: none; }
+canvas.waiting { cursor: wait; }
+.controls { display: flex; gap: 10px; }
+button {
+  background: var(--accent); color: #f5ece0; border: none; border-radius: 6px;
+  padding: 8px 22px; font-family: inherit; font-size: 0.88rem; cursor: pointer;
+  transition: opacity 0.12s; letter-spacing: 0.04em;
+}
+button:hover { opacity: 0.82; } button:active { opacity: 0.65; }
+button.sec { background: var(--panel); color: var(--fg); border: 1px solid var(--board-line); }
+</style>
+
+<h1>五子棋</h1>
+<div class="legend">
+  <div class="legend-item"><div class="stone-dot b"></div><span>黑（先下）</span></div>
+  <div class="legend-item"><div class="stone-dot w"></div><span>白</span></div>
+</div>
+<div id="status">選擇你的棋子</div>
+<canvas id="cv"></canvas>
+<div class="controls" id="controls-pick">
+  <button id="btn-black">先手（黑子）</button>
+  <button class="sec" id="btn-white">後手（白子）</button>
+</div>
+<div class="controls" id="controls-game" style="display:none">
+  <button id="btn-new">新局</button>
+  <button class="sec" id="btn-undo">悔棋</button>
+</div>
+
+<script>
+const N = 15;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+const pickEl = document.getElementById('controls-pick');
+const gameEl = document.getElementById('controls-game');
+
+let CELL, PAD;
+let board, history, gameOver, myTurn, waiting;
+let lastMoveDb = null;
+let dbRef = null;
+let unsub = null;
+let localSeq = 0;
+let playerColor = 0; // 1=諺黑先手，2=諺白後手
+
+function aiColor() { return 3 - playerColor; }
+
+function showPicker() {
+  pickEl.style.display = '';
+  gameEl.style.display = 'none';
+  statusEl.textContent = '選擇你的棋子';
+}
+
+function hidePicker() {
+  pickEl.style.display = 'none';
+  gameEl.style.display = '';
+}
+
+// ── DB ──────────────────────────────────────────────
+async function saveState(lastR = -1, lastC = -1) {
+  if (!dbRef || !playerColor) return;
+  try {
+    await dbRef.doc('game/state').set({
+      board: board.map(r => r.join('')).join('|'),
+      gameOver,
+      winner: gameOver ? (checkWin(board,1)?1:checkWin(board,2)?2:0) : 0,
+      turn: myTurn ? playerColor : aiColor(),
+      seq: localSeq,
+      last_r: lastR,
+      last_c: lastC,
+      player_color: playerColor,
+    });
+  } catch(_) {}
+}
+
+function setupListener() {
+  if (unsub) { unsub(); unsub = null; }
+  if (!dbRef) return;
+  unsub = dbRef.doc('game/state').onSnapshot(snap => {
+    if (!snap.exists) return;
+    const d = snap.data();
+    if (!d || !d.board) return;
+    const dbSeq = Number(d.seq || 0);
+    if (waiting && !gameOver && playerColor && Number(d.turn) === playerColor && dbSeq >= localSeq) {
+      localSeq = dbSeq;
+      const rows = String(d.board).split('|');
+      if (rows.length !== N) return;
+      board = rows.map(r => String(r).split('').map(v => v==='1'?1:v==='2'?2:0));
+      lastMoveDb = Number(d.last_r) >= 0 ? {r: Number(d.last_r), c: Number(d.last_c)} : null;
+      gameOver = checkWin(board, 1) || checkWin(board, 2);
+      myTurn = !gameOver;
+      waiting = false;
+      cv.classList.remove('waiting');
+      draw();
+      const myN = playerColor === 1 ? '黑子' : '白子';
+      const aiN = playerColor === 1 ? '白子' : '黑子';
+      if (gameOver) {
+        statusEl.textContent = checkWin(board, aiColor()) ? `${aiN}贏了（五連）再來一局？` : `${myN}贏了！（五連）`;
+      } else {
+        statusEl.textContent = `輪到${myN}（你）…`;
+      }
+    }
+  }, () => {});
+}
+
+// ── 遊戲邏輯 ────────────────────────────────────────
+function initGame(color, save = true) {
+  playerColor = color;
+  board = Array.from({length: N}, () => new Array(N).fill(0));
+  history = []; gameOver = false;
+  lastMoveDb = null;
+  localSeq = Date.now();
+  hidePicker();
+  const myN = playerColor === 1 ? '黑子' : '白子';
+  const aiN = playerColor === 1 ? '白子' : '黑子';
+  if (playerColor === 1) {
+    myTurn = true; waiting = false;
+    cv.classList.remove('waiting');
+    statusEl.textContent = `等${myN}（你）落子…`;
+  } else {
+    myTurn = false; waiting = true;
+    cv.classList.add('waiting');
+    statusEl.textContent = `等${aiN}落子…`;
+  }
+  draw();
+  if (save) saveState(-1, -1);
+}
+
+function resize() {
+  const maxW = Math.min(window.innerWidth - 40, 540);
+  CELL = Math.floor(maxW / (N + 1)); PAD = CELL;
+  const sz = PAD * 2 + (N - 1) * CELL;
+  cv.width = sz; cv.height = sz; draw();
+}
+
+function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+function draw() {
+  const sz = cv.width;
+  ctx.fillStyle = tok('--board'); ctx.fillRect(0, 0, sz, sz);
+  ctx.strokeStyle = tok('--board-line'); ctx.lineWidth = 1;
+  for (let i = 0; i < N; i++) {
+    const x = PAD + i * CELL, y = PAD + i * CELL;
+    ctx.beginPath(); ctx.moveTo(x, PAD); ctx.lineTo(x, PAD+(N-1)*CELL); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(PAD+(N-1)*CELL, y); ctx.stroke();
+  }
+  ctx.fillStyle = tok('--board-line');
+  for (const [r,c] of [[3,3],[3,11],[11,3],[11,11],[7,7],[7,3],[7,11],[3,7],[11,7]]) {
+    ctx.beginPath(); ctx.arc(PAD+c*CELL, PAD+r*CELL, 3, 0, Math.PI*2); ctx.fill();
+  }
+  const last = history.length ? history[history.length-1] : lastMoveDb;
+  for (let r = 0; r < N; r++)
+    for (let c = 0; c < N; c++)
+      if (board[r][c]) drawStone(r, c, board[r][c], last && last.r===r && last.c===c);
+}
+
+function drawStone(r, c, who, isLast) {
+  const x = PAD+c*CELL, y = PAD+r*CELL, rad = CELL*0.43;
+  ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI*2);
+  if (who === 1) {
+    const g = ctx.createRadialGradient(x-rad*.3, y-rad*.3, rad*.08, x, y, rad);
+    g.addColorStop(0, tok('--stone-b0')); g.addColorStop(1, tok('--stone-b1'));
+    ctx.fillStyle = g; ctx.fill();
+  } else {
+    const g = ctx.createRadialGradient(x-rad*.3, y-rad*.3, rad*.08, x, y, rad);
+    g.addColorStop(0, tok('--stone-w0')); g.addColorStop(1, tok('--stone-w1'));
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = tok('--stone-wb'); ctx.lineWidth = 1; ctx.stroke();
+  }
+  if (isLast) {
+    ctx.beginPath(); ctx.arc(x, y, rad*.22, 0, Math.PI*2);
+    ctx.fillStyle = who===1 ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.38)';
+    ctx.fill();
+  }
+}
+
+function checkWin(b, p) {
+  for (let r = 0; r < N; r++)
+    for (let c = 0; c < N; c++) {
+      if (b[r][c] !== p) continue;
+      for (const [dr,dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+        let n = 1;
+        for (let k = 1; k < 5; k++) {
+          const nr=r+dr*k, nc=c+dc*k;
+          if (nr<0||nr>=N||nc<0||nc>=N||b[nr][nc]!==p) break;
+          n++;
+        }
+        if (n >= 5) return true;
+      }
+    }
+  return false;
+}
+
+function place(r, c, p) { board[r][c] = p; history.push({r, c, p}); }
+
+function hitCell(e) {
+  const rect = cv.getBoundingClientRect();
+  const sx = cv.width/rect.width, sy = cv.height/rect.height;
+  let px, py;
+  if (e.changedTouches) { px=(e.changedTouches[0].clientX-rect.left)*sx; py=(e.changedTouches[0].clientY-rect.top)*sy; }
+  else { px=(e.clientX-rect.left)*sx; py=(e.clientY-rect.top)*sy; }
+  const c = Math.round((px-PAD)/CELL), r = Math.round((py-PAD)/CELL);
+  if (c<0||c>=N||r<0||r>=N) return null;
+  return {r, c};
+}
+
+// ── 玩家落子 ────────────────────────────────────────
+async function onMove(e) {
+  if (!playerColor || gameOver || waiting || !myTurn) return;
+  const cell = hitCell(e);
+  if (!cell || board[cell.r][cell.c] !== 0) return;
+  myTurn = false;
+  place(cell.r, cell.c, playerColor); draw();
+  localSeq = Date.now();
+  const myN = playerColor === 1 ? '黑子' : '白子';
+  const aiN = playerColor === 1 ? '白子' : '黑子';
+  if (checkWin(board, playerColor)) {
+    statusEl.textContent = `${myN}贏了！（五連）`;
+    gameOver = true;
+    await saveState(cell.r, cell.c);
+    return;
+  }
+  waiting = true;
+  cv.classList.add('waiting');
+  statusEl.textContent = `等${aiN}回應…（去對話視窗說「下好了」）`;
+  await saveState(cell.r, cell.c);
+}
+
+cv.addEventListener('click', onMove);
+cv.addEventListener('touchend', e => { e.preventDefault(); onMove(e); });
+
+document.getElementById('btn-black').addEventListener('click', () => initGame(1, true));
+document.getElementById('btn-white').addEventListener('click', () => initGame(2, true));
+document.getElementById('btn-new').addEventListener('click', () => showPicker());
+document.getElementById('btn-undo').addEventListener('click', async () => {
+  if (waiting || !playerColor) return;
+  let n = 0;
+  while (history.length && n < 2) { const m = history.pop(); board[m.r][m.c] = 0; n++; }
+  gameOver = false; myTurn = true; waiting = false;
+  cv.classList.remove('waiting');
+  const myN = playerColor === 1 ? '黑子' : '白子';
+  statusEl.textContent = `悔棋完成，輪到${myN}（你）…`;
+  draw(); await saveState(-1, -1);
+});
+
+window.addEventListener('resize', () => { resize(); draw(); });
+
+// ── 啟動 ────────────────────────────────────────────
+async function boot(data) {
+  dbRef = await window.claude?.use?.('db') || null;
+  setupListener();
+  resize();
+  if (dbRef) {
+    try {
+      const snap = await dbRef.doc('game/state').get();
+      if (snap.exists) {
+        const d = snap.data();
+        if (d && d.board && d.player_color) {
+          const rows = String(d.board).split('|');
+          if (rows.length === N) {
+            playerColor = Number(d.player_color);
+            board = rows.map(r => String(r).split('').map(v => v==='1'?1:v==='2'?2:0));
+            history = [];
+            lastMoveDb = Number(d.last_r) >= 0 ? {r: Number(d.last_r), c: Number(d.last_c)} : null;
+            gameOver = checkWin(board, 1) || checkWin(board, 2);
+            myTurn = !gameOver && Number(d.turn) === playerColor;
+            waiting = !gameOver && Number(d.turn) === aiColor();
+            localSeq = Number(d.seq || 0);
+            hidePicker();
+            draw();
+            const myN = playerColor === 1 ? '黑子' : '白子';
+            const aiN = playerColor === 1 ? '白子' : '黑子';
+            if (gameOver) {
+              const w = checkWin(board,playerColor)?`${myN}贏了！（五連）`:checkWin(board,aiColor())?`${aiN}贏了（五連）再來一局？`:'遊戲已結束';
+              statusEl.textContent = w;
+            } else if (waiting) {
+              cv.classList.add('waiting');
+              statusEl.textContent = `等${aiN}回應…（去對話視窗說「下好了」）`;
+            } else {
+              statusEl.textContent = `等${myN}（你）落子…`;
+            }
+            return;
+          }
+        }
+      }
+    } catch(_) {}
+  }
+  board = Array.from({length: N}, () => new Array(N).fill(0));
+  draw();
+}
+
+if (window.claude?.hot?.ready) { window.claude.hot.ready(boot); } else { boot({}); }
+</script>
