@@ -166,6 +166,7 @@ button.sec { background: var(--panel); color: var(--fg); border: 1px solid var(-
 </div>
 <div class="controls" id="controls-game" style="display:none">
   <button id="btn-new">新局</button>
+  <button class="sec" id="btn-resign" hidden>投降</button>
 </div>
 
 <script>
@@ -439,10 +440,11 @@ function finishTurn(hl, isMyMove) {
 function showResult() {
   const {black, white} = countStones(board);
   let msg;
-  if (black > white) msg = `遊戲結束！黑子勝（${black} : ${white}）`;
-  else if (white > black) msg = `遊戲結束！白子勝（${white} : ${black}）`;
+  if (black > white) msg = `遊戲結束！黑子勝（黑 ${black}：白 ${white}）`;
+  else if (white > black) msg = `遊戲結束！白子勝（黑 ${black}：白 ${white}）`;
   else msg = `遊戲結束！平局（${black} : ${white}）`;
   statusEl.textContent = msg;
+  document.getElementById('btn-resign').hidden = true;
   gameEl.style.display = '';
 }
 
@@ -484,6 +486,7 @@ async function initGame(color) {
   initBoard(); gameOver = false; lastMove = null; animating = false;
   localSeq = Date.now();
   pickEl.style.display = 'none'; gameEl.style.display = '';
+  document.getElementById('btn-resign').hidden = false;
   const myN = color === 1 ? '黑子' : '白子';
   const aiN = color === 1 ? '白子' : '黑子';
   if (color === 1) {
@@ -548,6 +551,16 @@ async function boot() {
 document.getElementById('btn-black').addEventListener('click', () => initGame(1));
 document.getElementById('btn-white').addEventListener('click', () => initGame(2));
 document.getElementById('btn-new').addEventListener('click', () => showPicker());
+document.getElementById('btn-resign').addEventListener('click', () => {
+  if (!playerColor || gameOver) return;
+  gameOver = true; myTurn = false; waiting = false;
+  const winColor = aiColor();
+  const winN = winColor === 1 ? '黑子' : '白子';
+  const {black, white} = countStones(board);
+  statusEl.textContent = `你投降了。${winN}勝（黑 ${black}：白 ${white}）`;
+  document.getElementById('btn-resign').hidden = true;
+  renderBoard(lastMove);
+});
 
 if (window.claude?.hot?.ready) { window.claude.hot.ready(boot); } else { boot(); }
 </script>
