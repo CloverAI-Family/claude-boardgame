@@ -39,6 +39,16 @@ AI 讀取 db → 思考 → 寫回棋步（輪到你）
 - Claude Code 在終端機或 IDE 中運行
 - Artifact 必須在你自己的帳號下開啟
 
+## 截圖
+
+五子棋——黑子五連勝局：
+
+![五子棋棋盤](screenshots/gomoku-board.png)
+
+Claude Code 操作畫面——AI 讀取棋盤、計算落子、寫回結果：
+
+![AI 操作流程](screenshots/ai-workflow.png)
+
 ## 遊戲
 
 | 遊戲 | 資料夾 | 狀態 |
